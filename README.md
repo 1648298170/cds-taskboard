@@ -42,6 +42,8 @@ The published port binds to `127.0.0.1` only. Requests reach the container from 
 
 A Linux process inside the container cannot resolve host paths, so capabilities that need the host workspace directory or Git worktrees (development context scanning) are unavailable under Docker. Use the local run mode when you need them.
 
+The container also cannot replace the launcher for the Codex panel. The injector starts its own Taskboard in launcher mode and authenticates it with an instance token and secret on port 47823, so a container bound to the same port makes it fail with `EADDRINUSE`. Choose one of the two: Docker for a plain web UI, or the injector for the embedded Codex panel.
+
 ## Use the CLI
 
 Run it from the project:

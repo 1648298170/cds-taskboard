@@ -42,6 +42,8 @@ docker compose up -d --build
 
 容器内的 Linux 进程无法解析宿主机路径，因此依赖宿主机工作区目录或 Git worktree 的能力（开发上下文扫描）在 Docker 下不可用。需要这些能力时请使用本地运行方式。
 
+容器也无法替代 Codex 面板的启动器。注入器会在 47823 上以 launcher 模式启动自己的 Taskboard，并用实例令牌与密钥完成鉴权，因此占用同一端口的容器会让它因 `EADDRINUSE` 失败。两者只能选其一：用 Docker 提供纯网页界面，或用注入器提供 Codex 内嵌面板。
+
 ## 使用 CLI
 
 在项目中运行：
