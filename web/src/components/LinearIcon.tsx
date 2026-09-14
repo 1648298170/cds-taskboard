@@ -40,6 +40,15 @@ const ICONS = {
   folder: {
     content: <path d="M6.32 3.5H3.75c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h8.5c.69 0 1.25-.56 1.25-1.25v-4.5c0-.69-.56-1.25-1.25-1.25H9.08a1.75 1.75 0 0 1-1.27-.545L6.503 3.578A.25.25 0 0 0 6.32 3.5M3.75 2h2.57c.48 0 .939.197 1.27.545l1.308 1.377A.25.25 0 0 0 9.08 4h3.171A2.75 2.75 0 0 1 15 6.75v4.5A2.75 2.75 0 0 1 12.25 14h-8.5A2.75 2.75 0 0 1 1 11.25v-6.5A2.75 2.75 0 0 1 3.75 2" />,
   },
+  folderOpen: {
+    content: <><path d="M6.32 3.5H3.75c-.69 0-1.25.56-1.25 1.25v1.28h10.15c.86 0 1.47.83 1.24 1.66l-.94 3.39A2.75 2.75 0 0 1 10.32 13.5H3.75A2.75 2.75 0 0 1 1 10.75v-6.5A2.75 2.75 0 0 1 3.75 1.5h2.57c.48 0 .939.197 1.27.545L8.488 2.92A1.75 1.75 0 0 1 7.22 3.5z" /><path d="M4.55 6.53h9.1c.7 0 1.2.66 1.03 1.34l-.83 3.25a1.25 1.25 0 0 1-1.21.94H2.96a.75.75 0 0 1-.72-.95l1.17-4.03a.75.75 0 0 1 .72-.55z" /></>,
+  },
+  sidebarCollapse: {
+    content: <g fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M6 3v10" /><path d="M12 6.2 10.2 8l1.8 1.8" /></g>,
+  },
+  sidebarExpand: {
+    content: <g fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="12" height="10" rx="2" /><path d="M6 3v10" /><path d="M9.5 6.2 11.3 8l-1.8 1.8" /></g>,
+  },
   home: {
     content: <path fillRule="evenodd" d="M2.323 5.68A1 1 0 0 0 2 6.415v8.083a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3.515a2 2 0 0 1 4 0v3.515a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5V6.416a1 1 0 0 0-.323-.737L9.015 1.396a1.5 1.5 0 0 0-2.03 0z" clipRule="evenodd" />,
   },

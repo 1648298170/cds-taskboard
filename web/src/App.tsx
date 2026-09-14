@@ -60,7 +60,6 @@ import {
 } from "./components/BoardCardDisplayMenu";
 import { DashboardView } from "./components/DashboardView";
 import { ProjectReadmeView } from "./components/ProjectReadmeView";
-import { IssueListView } from "./components/IssueListView";
 import { JiraConnectionDialog } from "./components/JiraConnectionDialog";
 import { ArchivedTasksColumn, OtherTasksPanel } from "./components/OtherTasksPanel";
 import {
@@ -103,6 +102,7 @@ import {
   taskStatusLabel,
   TaskboardLanguageProvider,
 } from "./i18n";
+import { groupProjectsByFolder } from "./projectFolders";
 import {
   MAIN_STATUSES,
   type OtherTaskTab,
@@ -146,11 +146,9 @@ import { createRevisionPoller, createRevisionWebSocketClient, getRevisionPolling
 
 type ConnectionState = "connecting" | "live" | "reconnecting";
 type Theme = "light" | "dark";
-type BoardView = "readme" | "dashboard" | "issues" | "list" | "gantt";
+type BoardView = "readme" | "dashboard" | "issues";
 type DetailSourceScroll =
-  | { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number }
-  | { projectId: string; view: "list"; scrollTop: number };
-type GanttZoom = "day" | "week" | "month";
+  { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number };
 type ActionError = string | readonly [string, string];
 type ProjectLoadError = {
   source: "projects";
@@ -164,13 +162,8 @@ type TasksLoadError = {
   message: string;
 };
 type LoadError = ProjectLoadError | TasksLoadError;
-const GANTT_ZOOM_OPTIONS: GanttZoom[] = ["day", "week", "month"];
-
 const AiChat = lazy(() => import("./components/AiChat").then((module) => ({
   default: module.AiChat,
-})));
-const GanttView = lazy(() => import("./components/GanttView").then((module) => ({
-  default: module.GanttView,
 })));
 
 interface EditorState {
@@ -187,6 +180,7 @@ interface ContextMenuState {
 interface ProjectChoice {
   id: string;
   name: string;
+  workspacePath: string | null;
   issueCount: number;
   inCodex: boolean;
   persisted: boolean;
@@ -313,6 +307,7 @@ const ALL_PROJECTS_DEFAULT_BOARD_DISPLAY_SETTINGS: BoardDisplaySettings = {
 const RECENT_PROJECT_IDS_KEY = "taskboard.recentProjectIds.v1";
 const PROJECT_VIEW_KEY_PREFIX = "taskboard.project-view.v1.";
 const DEVICE_WORKSPACE_PATHS_KEY = "taskboard.deviceWorkspacePaths.v1";
+const PROJECT_SIDEBAR_OPEN_KEY = "taskboard.projectSidebarOpen.v1";
 const PROJECT_CODEX_IDENTITIES_KEY = "taskboard.projectCodexIdentities.v1";
 const PROJECT_AUTOMATIONS_KEY = "taskboard.projectAutomations.v1";
 const ISSUE_READ_KEY_PREFIX = "taskboard.issue-read.v1";
@@ -323,7 +318,7 @@ function issueReadStorageKey(mode: string, task: Pick<Task, "id" | "projectId">)
 
 function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  return view === "readme" || view === "dashboard" || view === "list" || view === "gantt" || view === "issues"
+  return view === "readme" || view === "dashboard" || view === "issues"
     ? view
     : "issues";
 }
@@ -404,6 +399,10 @@ function readDeviceWorkspacePaths(): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+function readProjectSidebarOpen(): boolean {
+  return taskboardStorage.getItem(PROJECT_SIDEBAR_OPEN_KEY) !== "false";
 }
 
 function readProjectCodexIdentities(): Record<string, CodexProjectIdentity> {
@@ -793,10 +792,6 @@ export function App() {
     }
   }, []);
   const [dashboardSummaryAnimatedProjectId, setDashboardSummaryAnimatedProjectId] = useState<string | null>(null);
-  const [ganttZoom, setGanttZoom] = useState<GanttZoom>("week");
-  const [ganttHideCompleted, setGanttHideCompleted] = useState(false);
-  const [ganttTodayRequest, setGanttTodayRequest] = useState(0);
-  const [ganttViewMenuOpen, setGanttViewMenuOpen] = useState(false);
   const [otherTasksOpen, setOtherTasksOpen] = useState(false);
   const [otherTasksMounted, setOtherTasksMounted] = useState(false);
   const [otherTasksVisible, setOtherTasksVisible] = useState(false);
@@ -824,10 +819,9 @@ export function App() {
   const [settlingTaskId, setSettlingTaskId] = useState<string | null>(null);
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
   const [openingThreadTaskId, setOpeningThreadTaskId] = useState<string | null>(null);
-  const [projectMenuOpen, setProjectMenuOpen] = useState(
-    () => taskboardStorage.getItem(FIRST_USE_COMPLETE_KEY) === null,
-  );
+  const [projectMenuOpen, setProjectMenuOpen] = useState(readProjectSidebarOpen);
   const [projectMenuSearch, setProjectMenuSearch] = useState("");
+  const [collapsedProjectFolderKeys, setCollapsedProjectFolderKeys] = useState<Record<string, boolean>>({});
   const [projectContextMenu, setProjectContextMenu] = useState<ProjectContextMenuState | null>(null);
   const [projectCreateOpen, setProjectCreateOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -859,7 +853,6 @@ export function App() {
   const undoStackRef = useRef<UndoOperation[]>([]);
   const undoInFlightRef = useRef(false);
   const dragRegionRef = useRef<HTMLDivElement>(null);
-  const issueListRef = useRef<HTMLDivElement>(null);
   const boardScrollRef = useRef<HTMLDivElement>(null);
   const boardColumnScrollRefs = useRef<Partial<Record<TaskStatus, HTMLDivElement | null>>>({});
   const detailSourceProjectIdRef = useRef<string | null>(null);
@@ -1181,6 +1174,7 @@ export function App() {
         name: project.id === GLOBAL_PROJECT_ID
           ? text("临时任务", "Temporary tasks")
           : persistedById.get(project.id)?.name ?? project.name,
+        workspacePath: deviceWorkspacePaths[project.id] ?? project.workspacePath ?? null,
         issueCount: persistedById.get(project.id)?.issueCount ?? 0,
         inCodex: true,
         persisted: persistedById.has(project.id),
@@ -1201,6 +1195,10 @@ export function App() {
         name: project.id === GLOBAL_PROJECT_ID
           ? text("临时任务", "Temporary tasks")
           : project.name,
+        workspacePath: deviceWorkspacePaths[project.id]
+          ?? project.workspacePath
+          ?? projectCodexIdentities[project.id]?.workspacePath
+          ?? null,
         issueCount: project.issueCount,
         inCodex: false,
         persisted: true,
@@ -1216,14 +1214,25 @@ export function App() {
       ...sortedChoices.filter((project) => project.issueCount > 0),
       ...sortedChoices.filter((project) => project.issueCount === 0),
     ];
-  }, [hostContext?.projects, projectCodexIdentities, projects, recentProjectIds, text]);
+  }, [
+    deviceWorkspacePaths,
+    hostContext?.projects,
+    projectCodexIdentities,
+    projects,
+    recentProjectIds,
+    text,
+  ]);
   const projectMenuCandidates = projectChoices.filter(
     (project) => project.id !== GLOBAL_PROJECT_ID || project.issueCount > 0,
   );
   const projectMenuNeedle = projectMenuSearch.trim().toLocaleLowerCase();
   const projectMenuChoices = projectMenuNeedle
-    ? projectMenuCandidates.filter((project) => project.name.toLocaleLowerCase().includes(projectMenuNeedle))
+    ? projectMenuCandidates.filter((project) => (
+      project.name.toLocaleLowerCase().includes(projectMenuNeedle)
+      || project.workspacePath?.toLocaleLowerCase().includes(projectMenuNeedle)
+    ))
     : projectMenuCandidates;
+  const projectMenuGroups = groupProjectsByFolder(projectMenuChoices);
   const firstEmptyProjectId = projectMenuChoices.find((project) => project.issueCount === 0)?.id ?? null;
   const hasProjectsWithIssues = projectMenuChoices.some((project) => project.issueCount > 0);
   const editorProjectId = editor?.projectId
@@ -1564,13 +1573,7 @@ export function App() {
     const currentIssue = readIssueIdentifier(window.location.search);
     if (!currentIssue) detailSourceProjectIdRef.current = selectedProjectId;
     if (isAllProjects) setSelectedProjectId(task.projectId);
-    if (boardView === "list" && issueListRef.current) {
-      pendingDetailSourceScrollRef.current = {
-        projectId: selectedProjectId,
-        view: "list",
-        scrollTop: issueListRef.current.scrollTop,
-      };
-    } else if (boardView === "issues" && fullTask) {
+    if (boardView === "issues" && fullTask) {
       const scrollContainer = boardColumnScrollRefs.current[fullTask.status];
       if (scrollContainer) {
         pendingDetailSourceScrollRef.current = {
@@ -1583,7 +1586,6 @@ export function App() {
       }
     }
     closeContextMenu();
-    setProjectMenuOpen(false);
     setDetailTaskIdentifier(task.identifier);
     const boardUrl = buildIssueUrl(window.location.href, selectedProjectId, null);
     if (!currentIssue) {
@@ -1618,10 +1620,6 @@ export function App() {
       return;
     }
     pendingDetailSourceScrollRef.current = null;
-    if (pendingScroll.view === "list") {
-      if (issueListRef.current) issueListRef.current.scrollTop = pendingScroll.scrollTop;
-      return;
-    }
     const columnScrollContainer = boardColumnScrollRefs.current[pendingScroll.status];
     if (columnScrollContainer) columnScrollContainer.scrollTop = pendingScroll.scrollTop;
     if (boardScrollRef.current) boardScrollRef.current.scrollLeft = pendingScroll.scrollLeft;
@@ -1632,13 +1630,7 @@ export function App() {
       const url = new URL(window.location.href);
       const routeProjectId = url.searchParams.get("project") ?? GLOBAL_PROJECT_ID;
       const routeIssueIdentifier = readIssueIdentifier(url.search);
-      if (routeIssueIdentifier && boardView === "list" && issueListRef.current) {
-        pendingDetailSourceScrollRef.current = {
-          projectId: selectedProjectId,
-          view: "list",
-          scrollTop: issueListRef.current.scrollTop,
-        };
-      } else if (routeIssueIdentifier && boardView === "issues") {
+      if (routeIssueIdentifier && boardView === "issues") {
         const routeTask = tasksRef.current.find(
           (task) => task.identifier === routeIssueIdentifier,
         );
@@ -1708,23 +1700,6 @@ export function App() {
       taskboardStorage.setItem(FIRST_USE_COMPLETE_KEY, "true");
     }
   }, []);
-
-  useEffect(() => {
-    if (!projectMenuOpen) return;
-    function closeProjectMenu(event: PointerEvent) {
-      const target = event.target as HTMLElement;
-      if (!target.closest("[data-project-switcher]")) setProjectMenuOpen(false);
-    }
-    function closeProjectMenuWithEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") setProjectMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", closeProjectMenu);
-    window.addEventListener("keydown", closeProjectMenuWithEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeProjectMenu);
-      window.removeEventListener("keydown", closeProjectMenuWithEscape);
-    };
-  }, [projectMenuOpen]);
 
   useEffect(() => {
     if (!projectContextMenu) return;
@@ -2164,7 +2139,6 @@ export function App() {
     undoStackRef.current = undoStackRef.current.slice(0, -1);
     undoInFlightRef.current = true;
     setUndoNotice(null);
-    setProjectMenuOpen(false);
     closeContextMenu();
     setActionError(null);
     try {
@@ -2209,7 +2183,7 @@ export function App() {
         void performUndo();
         return;
       }
-      if (isTyping || contextMenu || projectMenuOpen) return;
+      if (isTyping || contextMenu) return;
       if (
         event.key.toLowerCase() === "c"
         && !event.metaKey
@@ -2224,7 +2198,7 @@ export function App() {
         event.key === "/"
         && !detailTaskId
         && selectedProjectId
-        && (boardView === "issues" || boardView === "list" || boardView === "gantt")
+        && boardView === "issues"
       ) {
         event.preventDefault();
         document.getElementById("task-search")?.focus();
@@ -2236,7 +2210,7 @@ export function App() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [boardView, contextMenu, detailTaskId, editor, isJiraProject, projectMenuOpen, selectedProjectId]);
+  }, [boardView, contextMenu, detailTaskId, editor, isJiraProject, selectedProjectId]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter(
@@ -2341,7 +2315,6 @@ export function App() {
 
   function selectBoardView(view: BoardView) {
     closeContextMenu();
-    setGanttViewMenuOpen(false);
     setBoardView(view);
     if (selectedProjectId) {
       taskboardStorage.setItem(`${PROJECT_VIEW_KEY_PREFIX}${selectedProjectId}`, view);
@@ -3087,7 +3060,6 @@ export function App() {
   function changeProject(projectId: string) {
     closeContextMenu();
     setProjectContextMenu(null);
-    setProjectMenuOpen(false);
     detailSourceProjectIdRef.current = null;
     setDetailTaskIdentifier(null);
     setBoardView(projectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(projectId));
@@ -3141,7 +3113,6 @@ export function App() {
   }
 
   function openJiraDialog() {
-    setProjectMenuOpen(false);
     setProjectContextMenu(null);
     setJiraError(null);
     setJiraDialogOpen(true);
@@ -3195,7 +3166,6 @@ export function App() {
   }
 
   function openCreateProjectDialog() {
-    setProjectMenuOpen(false);
     setProjectContextMenu(null);
     setProjectName("");
     setActionError(null);
@@ -3232,7 +3202,6 @@ export function App() {
   }
 
   function requestProjectDelete(project: ProjectChoice) {
-    setProjectMenuOpen(false);
     setProjectContextMenu(null);
     setProjectDeleteIssueCount(null);
     setPendingProjectDelete(project);
@@ -3294,7 +3263,7 @@ export function App() {
 
   return (
     <TaskboardLanguageProvider language={language}>
-      <div className={`app-shell${embedded ? " embedded" : ""}`} style={appShellStyle}>
+      <div className={`app-shell${embedded ? " embedded" : ""}${projectMenuOpen ? " has-project-sidebar" : ""}`} style={appShellStyle}>
       {taskboardMetadata && taskboardMetadata.mode !== "cloud" && (
         <LocalRealtimeSync
           selectedProjectId={taskScopeProjectId}
@@ -3307,6 +3276,86 @@ export function App() {
           setAttachmentsRevision={setAttachmentsRevision}
           setReadmeRevision={setReadmeRevision}
         />
+      )}
+      {projectMenuOpen && (
+        <aside id="project-sidebar" className="project-sidebar" data-project-switcher aria-label={text("项目", "Projects")}>
+          <div className="project-sidebar-header">
+            <span>{text("项目", "Projects")}</span>
+            <button
+              type="button"
+              aria-label={text("收起项目面板", "Collapse projects panel")}
+              title={text("收起项目面板", "Collapse projects panel")}
+              onClick={() => {
+                setProjectMenuOpen(false);
+                taskboardStorage.setItem(PROJECT_SIDEBAR_OPEN_KEY, "false");
+              }}
+            >
+              <LinearIcon name="sidebarCollapse" />
+            </button>
+          </div>
+          <div className="project-menu-search">
+            <label className="sr-only" htmlFor="project-menu-search-input">
+              {text("按名称或路径筛选项目", "Filter projects by name or path")}
+            </label>
+            <TaskboardIcon name="search" />
+            <input
+              id="project-menu-search-input"
+              type="search"
+              value={projectMenuSearch}
+              onChange={(event) => setProjectMenuSearch(event.target.value)}
+              placeholder={text("筛选项目…", "Filter projects…")}
+            />
+            {projectMenuSearch && (
+              <button className="search-clear" type="button" aria-label={text("清除项目筛选", "Clear project filter")} onClick={() => setProjectMenuSearch("")}>
+                <LinearIcon name="close" />
+              </button>
+            )}
+          </div>
+          <nav className="project-sidebar-list" aria-label={text("项目列表", "Project list")}>
+            {!projectMenuNeedle && (
+              <>
+                <button type="button" className={"project-sidebar-folder project-sidebar-all" + (isAllProjects ? " is-selected" : "")} aria-current={isAllProjects ? "true" : undefined} disabled={openingProjectId !== null} onClick={() => { if (!isAllProjects) changeProject(ALL_PROJECTS_ID); }}>
+                  <LinearIcon className="project-folder-state-icon" name="folderOpen" />
+                  <span>{text("所有项目", "All projects")}</span>
+                </button>
+                <div className="project-menu-divider" role="separator" />
+              </>
+            )}
+            {projectMenuGroups.map((group) => {
+              const folderSegments = group.label?.split("/").filter(Boolean) ?? [];
+              const folderLabel = group.label === null
+                ? text("全局 / 未映射", "Global / unmapped")
+                : folderSegments.at(-1) ?? "/";
+              const collapsed = !projectMenuNeedle && collapsedProjectFolderKeys[group.key] === true;
+              return (
+                <Fragment key={group.key}>
+                  <button type="button" className="project-sidebar-folder" aria-expanded={!collapsed} title={group.label ?? undefined} onClick={() => setCollapsedProjectFolderKeys((current) => ({ ...current, [group.key]: !collapsed }))}>
+                    <LinearIcon className="project-folder-state-icon" name={collapsed ? "folder" : "folderOpen"} />
+                    <span>{folderLabel}</span>
+                  </button>
+                  {!collapsed && group.projects.map((project) => (
+                    <button key={project.id} type="button" className={"project-sidebar-item project-sidebar-leaf" + (project.id === selectedProjectId ? " is-selected" : "")} aria-current={project.id === selectedProjectId ? "true" : undefined} disabled={openingProjectId !== null} onContextMenu={project.id.startsWith("temp-") ? (event) => { event.preventDefault(); setProjectContextMenu({ project, x: event.clientX, y: event.clientY }); } : undefined} onClick={() => { if (project.id !== selectedProjectId) void selectProject(project); }}>
+                      <span className="project-sidebar-icon-placeholder" aria-hidden="true" />
+                      <span>{project.name}</span>
+                      {project.id === selectedProjectId && <span className="project-menu-check" aria-hidden="true"><LinearIcon name="check" /></span>}
+                    </button>
+                  ))}
+                </Fragment>
+              );
+            })}
+            {projectMenuNeedle && projectMenuChoices.length === 0 && <div className="project-menu-empty">{text("没有匹配项目", "No matching projects")}</div>}
+          </nav>
+          <div className="project-sidebar-actions">
+            <button type="button" disabled={openingProjectId !== null} onClick={openJiraDialog}>
+              <RelationIcon className="project-avatar" color="currentColor" size={16} />
+              <span>{jiraConnection?.configured ? text("Jira 设置", "Jira settings") : text("连接 Jira", "Connect Jira")}</span>
+            </button>
+            <button type="button" disabled={openingProjectId !== null} onClick={openCreateProjectDialog}>
+              <PlusIcon className="project-avatar" color="currentColor" size={16} />
+              <span>{text("创建项目", "Create project")}</span>
+            </button>
+          </div>
+        </aside>
       )}
       <main className="workspace">
         <header className="workspace-header">
@@ -3338,19 +3387,23 @@ export function App() {
                 <button
                   className="header-project-button"
                   type="button"
-                  aria-label={text("切换项目", "Switch project")}
-                  aria-haspopup="menu"
+                  aria-label={text(projectMenuOpen ? "收起项目面板" : "展开项目面板", projectMenuOpen ? "Collapse projects panel" : "Expand projects panel")}
+                  aria-controls="project-sidebar"
                   aria-expanded={projectMenuOpen}
                   onClick={() => {
                     setProjectContextMenu(null);
-                    setProjectMenuSearch("");
-                    setProjectMenuOpen((current) => !current);
+                    setProjectMenuOpen((current) => {
+                      const next = !current;
+                      taskboardStorage.setItem(PROJECT_SIDEBAR_OPEN_KEY, next ? "true" : "false");
+                      return next;
+                    });
                   }}
                 >
+                  <LinearIcon className="project-avatar" name={projectMenuOpen ? "sidebarCollapse" : "sidebarExpand"} />
                   <span className="project-name">{headerProjectName}</span>
                   <TaskboardIcon className="project-switcher-chevron" name="dropdown" />
                 </button>
-                {projectMenuOpen && (
+                {false && (
                   <div className="header-project-menu" role="menu" aria-label={text("项目", "Projects")}>
                     <span>{text("切换项目", "Switch project")}</span>
                     <div className="project-menu-search">
@@ -3519,22 +3572,6 @@ export function App() {
             >
               {text("议题看板", "Issue board")}
             </button>
-            <button
-              className={`view-tab${boardView === "list" ? " active" : ""}`}
-              type="button"
-              aria-pressed={boardView === "list"}
-              onClick={() => selectBoardView("list")}
-            >
-              {text("列表视图", "List")}
-            </button>
-            <button
-              className={`view-tab${boardView === "gantt" ? " active" : ""}`}
-              type="button"
-              aria-pressed={boardView === "gantt"}
-              onClick={() => selectBoardView("gantt")}
-            >
-              {text("甘特图", "Gantt")}
-            </button>
             {!isAllProjects && (
               <button
                 className={`view-tab${boardView === "readme" ? " active" : ""}`}
@@ -3546,7 +3583,7 @@ export function App() {
               </button>
             )}
           </div>
-          {(boardView === "issues" || boardView === "list" || boardView === "gantt") && <div className="toolbar-tools">
+          {boardView === "issues" && <div className="toolbar-tools">
             <div className={`search-field${search ? " has-value" : ""}`} title={text("搜索议题 (/)", "Search issues (/)")}>
               <TaskboardIcon className="search-icon" name="search" />
               <input
@@ -3572,33 +3609,6 @@ export function App() {
                 </button>
               )}
             </div>
-            {boardView === "gantt" && (
-              <div className="gantt-toolbar-controls">
-                <label className="gantt-hide-completed">
-                  <input type="checkbox" checked={ganttHideCompleted} onChange={(event) => setGanttHideCompleted(event.target.checked)} />
-                  <i><LinearIcon name="check" /></i>
-                  <span>{text("隐藏已完成", "Hide completed")}</span>
-                </label>
-                <button type="button" className="gantt-today-button" onClick={() => setGanttTodayRequest((current) => current + 1)}>{text("今天", "Today")}</button>
-                <div className="gantt-view-menu-wrap">
-                  <button type="button" className="gantt-view-menu-trigger" aria-label={text("时间轴视图选项", "Timeline view options")} aria-expanded={ganttViewMenuOpen} onClick={() => setGanttViewMenuOpen((current) => !current)}>
-                    <MoreIcon color="currentColor" />
-                  </button>
-                  {ganttViewMenuOpen && (
-                    <div className="gantt-view-menu" role="menu">
-                      {GANTT_ZOOM_OPTIONS.map((value) => (
-                        <button type="button" role="menuitemradio" aria-checked={ganttZoom === value} className={ganttZoom === value ? "active" : ""} onClick={() => { setGanttZoom(value); setGanttViewMenuOpen(false); }} key={value}>
-                          <span>{language === "zh"
-                            ? { day: "日视图", week: "周视图", month: "月视图" }[value]
-                            : { day: "Day", week: "Week", month: "Month" }[value]}</span>
-                          {ganttZoom === value && <LinearIcon name="check" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
             <TaskFilterMenu
               tasks={tasks}
               search={search}
@@ -3743,30 +3753,6 @@ export function App() {
             onOpenTask={openTaskDetail}
             onOpenConversation={openTaskConversation}
           />
-        ) : boardView === "list" ? (
-          <IssueListView
-            scrollRef={issueListRef}
-            tasks={filteredTasks}
-            presentations={taskPresentations}
-            currentUser={currentUser}
-            hasActiveFilters={hasActiveTaskFilters}
-            onOpenTask={openTaskDetail}
-            onOpenConversation={openTaskConversation}
-            onUpdate={updateTaskProperties}
-          />
-        ) : boardView === "gantt" ? (
-          <Suspense fallback={<div className="board-view-loading">{text("正在打开甘特图…", "Opening Gantt…")}</div>}>
-            <GanttView
-              tasks={filteredTasks}
-              presentations={taskPresentations}
-              hasActiveFilters={hasActiveTaskFilters}
-              zoom={ganttZoom}
-              hideCompleted={ganttHideCompleted}
-              todayRequest={ganttTodayRequest}
-              onOpenTask={openTaskDetail}
-              onUpdate={updateTaskProperties}
-            />
-          </Suspense>
         ) : (
           <div
             className={`issue-board-layout${otherTasksAvailable && otherTasksVisible ? " has-other-tasks" : ""}`}
