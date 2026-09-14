@@ -30,6 +30,18 @@ npm run dev
 
 The Vite UI runs at <http://127.0.0.1:5173> and proxies API requests to the local service.
 
+## Run with Docker
+
+```bash
+docker compose up -d --build
+```
+
+Open <http://127.0.0.1:47823>. `.data/` is bind-mounted, so the database and attachments stay in the repository directory, and the container uses `restart: unless-stopped` to recover after a host restart.
+
+The published port binds to `127.0.0.1` only. Requests reach the container from the Docker bridge gateway, so the compose file lists the Docker private ranges in `CODEX_TASKBOARD_TRUSTED_GATEWAYS` to keep device-local endpoints such as `/api/local/*` working.
+
+A Linux process inside the container cannot resolve host paths, so capabilities that need the host workspace directory or Git worktrees (development context scanning) are unavailable under Docker. Use the local run mode when you need them.
+
 ## Use the CLI
 
 Run it from the project:
@@ -183,6 +195,7 @@ To use a different UI origin, set `window.__CODEX_TASKBOARD_URL__` before the us
 | `CODEX_TASKBOARD_TRUSTED_ORIGINS` | unset | Comma-separated exact HTTPS origins allowed through a loopback reverse tunnel |
 | `CODEX_TASKBOARD_DATA_DIR` | `.data` | SQLite data directory |
 | `CODEX_TASKBOARD_URL` | `http://127.0.0.1:47823` | CLI API origin |
+| `CODEX_TASKBOARD_TRUSTED_GATEWAYS` | empty | Comma-separated IPs or IPv4 CIDRs whose requests are treated as device-local (for reverse proxies and Docker port forwarding) |
 
 `npm start` prints both the local URL and the available LAN URLs. Teammates on the same trusted network can open one of those LAN URLs and use the same taskboard service. Task, comment, and attachment changes are broadcast to every open client through server-sent events; reconnecting clients perform a full refresh so changes made while disconnected are not missed. A teammate using `taskctl` can point it at the shared service with `CODEX_TASKBOARD_URL=http://<host-ip>:47823`.
 

@@ -30,6 +30,18 @@ npm run dev
 
 Vite UI 运行在 <http://127.0.0.1:5173>，并将 API 请求代理到本地服务。
 
+## 使用 Docker 运行
+
+```bash
+docker compose up -d --build
+```
+
+打开 <http://127.0.0.1:47823>。`.data/` 以 bind mount 方式挂载，数据库与附件仍保留在仓库目录中；容器带 `restart: unless-stopped`，主机重启后会自动恢复。
+
+发布端口只绑定 `127.0.0.1`。容器收到的请求来自 Docker 网桥网关，因此 compose 文件把 Docker 私有网段写入 `CODEX_TASKBOARD_TRUSTED_GATEWAYS`，让 `/api/local/*` 这类设备内接口继续可用。
+
+容器内的 Linux 进程无法解析宿主机路径，因此依赖宿主机工作区目录或 Git worktree 的能力（开发上下文扫描）在 Docker 下不可用。需要这些能力时请使用本地运行方式。
+
 ## 使用 CLI
 
 在项目中运行：
@@ -178,6 +190,7 @@ npm run codex:inject -- --port 9229 --open
 | `CODEX_TASKBOARD_PORT` | `47823` | 本地 HTTP 端口 |
 | `CODEX_TASKBOARD_DATA_DIR` | `.data` | SQLite 数据目录 |
 | `CODEX_TASKBOARD_URL` | `http://127.0.0.1:47823` | CLI API 源地址 |
+| `CODEX_TASKBOARD_TRUSTED_GATEWAYS` | 空 | 逗号分隔的 IP 或 IPv4 CIDR；来自这些地址的请求按本机请求处理（用于反向代理与 Docker 端口转发） |
 
 `npm start` 会输出本地 URL 和可用的局域网 URL。同一受信任网络中的协作者可以打开其中一个局域网 URL，并使用同一个 Taskboard 服务。任务、评论和附件变化通过服务器发送事件广播到所有打开的客户端；客户端重连后会执行完整刷新，因此不会遗漏断开连接期间发生的变化。使用 `taskctl` 的协作者可以通过 `CODEX_TASKBOARD_URL=http://<host-ip>:47823` 指向共享服务。
 

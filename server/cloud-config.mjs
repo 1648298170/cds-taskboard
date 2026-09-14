@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isAbsoluteWorkspacePath } from "../shared/workspace-path.mjs";
 
 const CONFIG_VERSION = 1;
 
@@ -74,7 +75,7 @@ function validateProjectMappings(value) {
   }
   const projectMappings = {};
   for (const [projectId, workspacePath] of Object.entries(value)) {
-    if (!projectId || typeof workspacePath !== "string" || !path.isAbsolute(workspacePath)) {
+    if (!projectId || !isAbsoluteWorkspacePath(workspacePath)) {
       throw new CloudConfigError("INVALID_CLOUD_CONFIG", "Cloud project mappings are invalid");
     }
     projectMappings[projectId] = workspacePath;
@@ -170,7 +171,7 @@ export function createCloudConfigStore({ configPath }) {
       if (typeof projectId !== "string" || !projectId.trim()) {
         throw new CloudConfigError("INVALID_PROJECT_MAPPING", "projectId is required");
       }
-      if (typeof workspacePath !== "string" || !path.isAbsolute(workspacePath)) {
+      if (!isAbsoluteWorkspacePath(workspacePath)) {
         throw new CloudConfigError(
           "INVALID_PROJECT_MAPPING",
           "workspacePath must be absolute",

@@ -1,6 +1,5 @@
-import path from "node:path";
-
 import { DEFAULT_PROJECT_ID } from "../shared/domain.mjs";
+import { isAbsoluteWorkspacePath } from "../shared/workspace-path.mjs";
 import { normalizeCloudUrl } from "./cloud-config.mjs";
 
 const LOCAL_COMPANION_ROUTES = new Set([
@@ -74,7 +73,7 @@ async function prepareRequest(request, {
     }
     if (isProjectCreate && Object.hasOwn(payload, "workspacePath")) {
       if (typeof payload.workspacePath === "string") {
-        if (!path.isAbsolute(payload.workspacePath)) {
+        if (!isAbsoluteWorkspacePath(payload.workspacePath)) {
           throw new CloudProxyError(
             400,
             "INVALID_PROJECT_MAPPING",

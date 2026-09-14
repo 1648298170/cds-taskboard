@@ -32,6 +32,7 @@ import {
 } from "../shared/domain.mjs";
 import { resolveCodexExecutable } from "../shared/codex-executable.mjs";
 import { withoutTaskboardLauncherEnvironment } from "../shared/codex-environment.mjs";
+import { isAbsoluteWorkspacePath } from "../shared/workspace-path.mjs";
 import { AiChatService } from "./ai-chat.mjs";
 import { resolveAiWorkspace, resolveMappedAiWorkspace } from "./ai-chat-catalog.mjs";
 import { decodeComposerReferenceKey } from "../shared/composer-reference.mjs";
@@ -68,6 +69,7 @@ const INLINE_ATTACHMENT_TYPES = new Set([
 const PROJECT_BOARD_DISPLAY_SETTINGS_KEY_PREFIX = "taskboard.project-board-display-settings.v3.";
 const TRUSTED_EMBED_ORIGINS = new Set(["app://-"]);
 const TRUSTED_ORIGINS_ENV = "CODEX_TASKBOARD_TRUSTED_ORIGINS";
+const TRUSTED_GATEWAYS_ENV = "CODEX_TASKBOARD_TRUSTED_GATEWAYS";
 const CODEX_AGENT_ACTOR = {
   type: "agent",
   id: "codex-agent",
@@ -212,6 +214,37 @@ function parseTrustedOrigins(value) {
   return origins;
 }
 
+function parseTrustedGateways(value) {
+  if (value === undefined) return [];
+  const configured = String(value).trim();
+  if (!configured) return [];
+  const gateways = [];
+  for (const rawGateway of configured.split(",")) {
+    const gateway = normalizeHostname(rawGateway.trim()).replace(/^::ffff:/, "");
+    if (!gateway) continue;
+    if (isIP(gateway)) {
+      gateways.push({ address: gateway, prefix: null });
+      continue;
+    }
+    const cidr = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(gateway);
+    if (!cidr || isIP(cidr[1]) !== 4 || Number(cidr[2]) > 32) {
+      throw new Error(`${TRUSTED_GATEWAYS_ENV} must be a comma-separated list of IP addresses or IPv4 CIDR ranges`);
+    }
+    gateways.push({ address: cidr[1], prefix: Number(cidr[2]) });
+  }
+  return gateways;
+}
+
+function matchesTrustedGateway(address, gateway) {
+  if (gateway.prefix === null) return address === gateway.address;
+  if (isIP(address) !== 4) return false;
+  if (gateway.prefix === 0) return true;
+  const toInt = (value) => value.split(".")
+    .reduce((total, part) => (total * 256) + Number(part), 0);
+  const mask = (0xffffffff << (32 - gateway.prefix)) >>> 0;
+  return (toInt(address) & mask) === (toInt(gateway.address) & mask);
+}
+
 function parseRequestHost(value) {
   if (typeof value !== "string" || !value || value !== value.trim()) {
     throw new ApiError(403, "INVALID_HOST", "Request Host must be local, private, or explicitly trusted");
@@ -261,13 +294,8 @@ function assertTrustedNetworkRequest(request, allowOpaqueOrigin = false, trusted
   return configuredTrustedHost || configuredTrustedOrigin;
 }
 
-function assertLoopbackRequest(request) {
-  const address = request.socket.remoteAddress;
-  if (
-    address !== "127.0.0.1"
-    && address !== "::1"
-    && address !== "::ffff:127.0.0.1"
-  ) {
+function assertLoopbackRequest(request, trustedGateways) {
+  if (!isDeviceLocalRequest(request, trustedGateways)) {
     throw new ApiError(403, "LOCAL_ONLY", "This endpoint is only available on this device");
   }
 }
@@ -319,18 +347,27 @@ function decodeRouteSegment(value, name) {
   return decoded;
 }
 
-function isLoopbackAddress(value) {
-  if (typeof value !== "string") return false;
-  const address = value.toLowerCase().split("%", 1)[0];
-  return address === "::1"
-    || address === "127.0.0.1"
-    || address.startsWith("127.")
-    || address === "::ffff:127.0.0.1"
-    || address.startsWith("::ffff:127.");
+function normalizeRemoteAddress(value) {
+  if (typeof value !== "string") return "";
+  return value.toLowerCase().split("%", 1)[0].replace(/^::ffff:/, "");
 }
 
-function assertAiLoopbackRequest(request) {
-  if (!isLoopbackAddress(request.socket.remoteAddress)) {
+function isLoopbackAddress(value) {
+  const address = normalizeRemoteAddress(value);
+  return address === "::1"
+    || address === "127.0.0.1"
+    || address.startsWith("127.");
+}
+
+function isDeviceLocalRequest(request, trustedGateways = []) {
+  const address = normalizeRemoteAddress(request.socket.remoteAddress);
+  if (isLoopbackAddress(address)) return true;
+  if (!isIP(address)) return false;
+  return trustedGateways.some((gateway) => matchesTrustedGateway(address, gateway));
+}
+
+function assertAiLoopbackRequest(request, trustedGateways) {
+  if (!isDeviceLocalRequest(request, trustedGateways)) {
     throw new ApiError(403, "LOCAL_AI_LOOPBACK_REQUIRED", "Local AI routes are only available from this device");
   }
 }
@@ -1347,6 +1384,7 @@ export function resolveServerOptions(options = {}) {
     instanceToken,
     instanceSecret,
     trustedOrigins: parseTrustedOrigins(environment[TRUSTED_ORIGINS_ENV]),
+    trustedGateways: parseTrustedGateways(environment[TRUSTED_GATEWAYS_ENV]),
     version: String(
       options.version ?? environment.CODEX_TASKBOARD_VERSION ?? "development",
     ).trim(),
@@ -1794,9 +1832,9 @@ export function createTaskboardServer(options = {}) {
         );
       }
       if (isLocalAiRoute) {
-        assertAiLoopbackRequest(request);
+        assertAiLoopbackRequest(request, resolved.trustedGateways);
       } else if (pathname.startsWith("/api/local/")) {
-        assertLoopbackRequest(request);
+        assertLoopbackRequest(request, resolved.trustedGateways);
       }
       const isMachineCapabilityRoute = pathname === "/api/meta"
         || pathname === "/api/device-workspaces"
@@ -1804,7 +1842,7 @@ export function createTaskboardServer(options = {}) {
       const capabilityCloudConfig = isMachineCapabilityRoute
         ? await cloudConfig.read()
         : null;
-      if (capabilityCloudConfig?.remoteUrl) assertLoopbackRequest(request);
+      if (capabilityCloudConfig?.remoteUrl) assertLoopbackRequest(request, resolved.trustedGateways);
 
       if (pathname === "/health") {
         if (request.method !== "GET") return methodNotAllowed(response, ["GET"]);
@@ -1831,7 +1869,7 @@ export function createTaskboardServer(options = {}) {
           const entries = await readClientStorage();
           const config = await cloudConfig.read();
           if (config.remoteUrl) {
-            assertLoopbackRequest(request);
+            assertLoopbackRequest(request, resolved.trustedGateways);
             const shared = await readCloudJson("/api/client-storage");
             for (const key of Object.keys(entries)) {
               if (key.startsWith(PROJECT_BOARD_DISPLAY_SETTINGS_KEY_PREFIX)) delete entries[key];
@@ -1849,7 +1887,7 @@ export function createTaskboardServer(options = {}) {
             config.remoteUrl
             && update.key.startsWith(PROJECT_BOARD_DISPLAY_SETTINGS_KEY_PREFIX)
           ) {
-            assertLoopbackRequest(request);
+            assertLoopbackRequest(request, resolved.trustedGateways);
             return sendFetchResponse(
               response,
               await cloudProxy.forward(new Request("http://127.0.0.1/api/client-storage", {
@@ -2061,7 +2099,7 @@ export function createTaskboardServer(options = {}) {
         assertPlainObject(body);
         assertAllowedKeys(body, new Set(["workspacePath"]));
         const workspacePath = pathField(body.workspacePath, "workspacePath");
-        if (!workspacePath || !path.isAbsolute(workspacePath)) {
+        if (!workspacePath || !isAbsoluteWorkspacePath(workspacePath)) {
           throw new ApiError(400, "INVALID_FIELD", "'workspacePath' must be absolute");
         }
         await cloudConfig.setProjectWorkspace(projectId, workspacePath);
@@ -2266,7 +2304,7 @@ export function createTaskboardServer(options = {}) {
       if (pathname.startsWith("/api/")) {
         currentCloudConfig = await cloudConfig.read();
         if (currentCloudConfig.remoteUrl) {
-          assertLoopbackRequest(request);
+          assertLoopbackRequest(request, resolved.trustedGateways);
           if (!isLocalCompanionRoute(pathname)) {
             return sendFetchResponse(
               response,
@@ -3089,7 +3127,7 @@ export function createTaskboardServer(options = {}) {
         rejectWebSocketUpgrade(socket, 404, "Not Found");
         return;
       }
-      assertLoopbackRequest(request);
+      assertLoopbackRequest(request, resolved.trustedGateways);
       const target = await cloudProxy.webSocketTarget("/api/events");
       remoteSocket = new WebSocketClient(target.url, { headers: target.headers });
       const pendingMessages = [];

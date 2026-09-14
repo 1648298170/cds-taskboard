@@ -7,7 +7,7 @@ import test from "node:test";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { main } from "../cli/taskctl.mjs";
-import { createTaskboardServer } from "../server/index.mjs";
+import { createTaskboardServer, resolveServerOptions } from "../server/index.mjs";
 
 const temporaryDirectories = [];
 
@@ -731,6 +731,75 @@ test("cloud mode exposes machine capabilities only to loopback while local mode 
     assert.equal(localProjects.status, 200);
   } finally {
     await app.close();
+  }
+});
+
+test("trusted gateways extend device-local access to a port-forwarding proxy", async (t) => {
+  const lanAddress = firstLanAddress();
+  if (!lanAddress) {
+    t.skip("No non-loopback IPv4 interface is available");
+    return;
+  }
+  const directory = await mkdtemp(path.join(os.tmpdir(), "taskboard-trusted-gateway-"));
+  temporaryDirectories.push(directory);
+  const app = createTaskboardServer({
+    dataDirectory: directory,
+    processEnv: { ...process.env, CODEX_TASKBOARD_TRUSTED_GATEWAYS: lanAddress },
+  });
+  const address = await app.listen({ host: "0.0.0.0", port: 0 });
+  const lanBaseUrl = `http://${lanAddress}:${address.port}`;
+
+  try {
+    const response = await fetch(`${lanBaseUrl}/api/local/host-runtime`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { runtime: null });
+  } finally {
+    await app.close();
+  }
+});
+
+test("gateways outside the trusted set stay blocked", async (t) => {
+  const lanAddress = firstLanAddress();
+  if (!lanAddress) {
+    t.skip("No non-loopback IPv4 interface is available");
+    return;
+  }
+  const directory = await mkdtemp(path.join(os.tmpdir(), "taskboard-untrusted-gateway-"));
+  temporaryDirectories.push(directory);
+  const app = createTaskboardServer({
+    dataDirectory: directory,
+    processEnv: { ...process.env, CODEX_TASKBOARD_TRUSTED_GATEWAYS: "203.0.113.0/24" },
+  });
+  const address = await app.listen({ host: "0.0.0.0", port: 0 });
+
+  try {
+    const response = await fetch(`http://${lanAddress}:${address.port}/api/local/host-runtime`);
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).error.code, "LOCAL_ONLY");
+  } finally {
+    await app.close();
+  }
+});
+
+test("trusted gateways accept CIDR ranges and reject malformed entries", () => {
+  const resolved = resolveServerOptions({
+    processEnv: {
+      ...process.env,
+      CODEX_TASKBOARD_TRUSTED_GATEWAYS: "172.23.0.1, 172.16.0.0/12 ,::ffff:10.1.2.3",
+    },
+  });
+  assert.deepEqual(resolved.trustedGateways, [
+    { address: "172.23.0.1", prefix: null },
+    { address: "172.16.0.0", prefix: 12 },
+    { address: "10.1.2.3", prefix: null },
+  ]);
+  assert.deepEqual(resolveServerOptions({ processEnv: { ...process.env, CODEX_TASKBOARD_TRUSTED_GATEWAYS: "" } }).trustedGateways, []);
+  for (const value of ["not-an-ip", "172.16.0.0/33", "10.0.0.0/8/8"]) {
+    assert.throws(
+      () => resolveServerOptions({ processEnv: { ...process.env, CODEX_TASKBOARD_TRUSTED_GATEWAYS: value } }),
+      /CODEX_TASKBOARD_TRUSTED_GATEWAYS/,
+      value,
+    );
   }
 });
 
