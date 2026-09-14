@@ -1,0 +1,12 @@
+services:
+  taskboard:
+    build: .
+    container_name: codex-taskboard
+    ports:
+      - "127.0.0.1:47823:47823"
+    volumes:
+      - taskboard-data:/app/.data
+    restart: unless-stopped
+
+volumes:
+  taskboard-data:
