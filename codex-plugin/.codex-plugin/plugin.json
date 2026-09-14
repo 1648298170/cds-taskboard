@@ -1,0 +1,17 @@
+{
+  "name": "dashi-taskboard",
+  "version": "0.1.0",
+  "description": "Connect Codex to a running Dashi Taskboard service through read-only MCP tools and the manage-taskboard skill.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "author": {
+    "name": "Dashi Taskboard contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "taskboard",
+    "issues",
+    "project-management",
+    "mcp"
+  ]
+}
