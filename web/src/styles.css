@@ -2918,19 +2918,6 @@ kbd {
   border-top: var(--border-hairline) solid var(--border);
 }
 
-.issue-sub-issue-list .issue-relation-row {
-  position: relative;
-}
-
-.issue-sub-issue-list .issue-relation-target {
-  padding-right: 8px;
-}
-
-.issue-sub-issue-list .issue-relation-row:hover .issue-relation-target,
-.issue-sub-issue-list .issue-relation-row:focus-within .issue-relation-target {
-  padding-right: 34px;
-}
-
 .issue-relation-row {
   display: flex;
   align-items: center;
@@ -2990,13 +2977,6 @@ kbd {
   margin-left: auto;
   border-width: 1px;
   font-size: 5px;
-}
-
-.issue-sub-issue-list .issue-relation-remove {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  margin-right: 0;
 }
 
 .issue-relation-remove {
