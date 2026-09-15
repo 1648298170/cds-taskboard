@@ -21,7 +21,7 @@ import {
   createProject as createProjectRequest,
   createTask as createTaskRequest,
   configureJiraConnection,
-  deleteArchivedTask as deleteArchivedTaskRequest,
+  deleteTask as deleteTaskRequest,
   deleteProjectLabel as deleteProjectLabelRequest,
   deleteProject as deleteProjectRequest,
   getAiChatCatalog,
@@ -2773,14 +2773,15 @@ export function App() {
     }
   }
 
-  async function deletePendingArchivedTask() {
-    if (!pendingArchivedTaskDelete || deletingArchivedTaskId) return;
-    const task = pendingArchivedTaskDelete;
+  async function deleteTaskPermanently(task: Task) {
+    if (deletingArchivedTaskId) return;
     setActionError(null);
     setDeletingArchivedTaskId(task.id);
     try {
-      await deleteArchivedTaskRequest(task);
+      await deleteTaskRequest(task);
       setArchivedTasks((current) => current.filter((candidate) => candidate.id !== task.id));
+      setTasks((current) => current.filter((candidate) => candidate.id !== task.id));
+      closeTaskDetail();
       setPendingArchivedTaskDelete(null);
       setAnnouncement(text(
         `${task.identifier} 已永久删除。`,
@@ -2797,6 +2798,11 @@ export function App() {
     } finally {
       setDeletingArchivedTaskId(null);
     }
+  }
+
+  async function deletePendingArchivedTask() {
+    if (!pendingArchivedTaskDelete) return;
+    await deleteTaskPermanently(pendingArchivedTaskDelete);
   }
 
   async function copyText(content: string, message: string) {
@@ -3675,6 +3681,7 @@ export function App() {
             onOpenThread={openThread}
             onOpenLegacyLocalThread={openLegacyLocalThread}
             onOpenInThread={openTaskInThread}
+            onDeleteTask={(current) => deleteTaskPermanently(current)}
             onCopy={(text, message) => void copyText(text, message)}
             openingThread={openingThreadTaskId === detailTask.id}
             onError={setActionError}

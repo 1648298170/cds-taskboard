@@ -3949,6 +3949,47 @@ kbd {
   border-top: var(--border-hairline) solid var(--border);
 }
 
+.detail-danger-zone {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: var(--border-hairline) solid var(--border);
+}
+
+.detail-delete-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+  gap: 6px;
+  border: var(--border-hairline) solid color-mix(in srgb, var(--danger) 26%, transparent);
+  border-radius: 6px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 560;
+}
+
+.detail-delete-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 42%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+
+.detail-delete-action:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.detail-delete-action:disabled {
+  cursor: default;
+  opacity: .55;
+}
+
+.detail-delete-action svg {
+  width: 13px;
+  height: 13px;
+}
+
 .issue-properties .issue-relation-sidebar > h2 {
   height: auto;
   margin: 0 0 4px;
@@ -4293,6 +4334,34 @@ kbd {
   justify-content: flex-end;
   gap: 7px;
   margin-top: 22px;
+}
+
+.issue-delete-confirmation {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.issue-delete-confirmation label {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.issue-delete-confirmation input {
+  width: 100%;
+  height: 32px;
+  padding: 0 9px;
+  border: var(--border-hairline) solid var(--border-strong);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.issue-delete-confirmation input:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .button.danger {

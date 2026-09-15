@@ -630,7 +630,7 @@ export async function restoreTask(task: Task, threadId?: string): Promise<Task> 
   return data.task;
 }
 
-export async function deleteArchivedTask(task: Task): Promise<void> {
+export async function deleteTask(task: Task): Promise<void> {
   await request(`/api/tasks/${encodeURIComponent(task.id)}`, {
     method: "DELETE",
     body: JSON.stringify({ version: task.version }),

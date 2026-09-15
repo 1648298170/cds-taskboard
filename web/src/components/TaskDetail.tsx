@@ -127,6 +127,7 @@ interface TaskDetailProps {
   onOpenThread: (binding: CodexThreadBinding) => void;
   onOpenLegacyLocalThread: (threadId: string) => void;
   onOpenInThread: (task: Task) => void;
+  onDeleteTask: (task: Task) => Promise<void>;
   onCopy: (text: string, announcement: string) => void;
   openingThread: boolean;
   onError: (message: TaskDetailError | null) => void;
@@ -386,6 +387,7 @@ export function TaskDetail({
   onOpenThread,
   onOpenLegacyLocalThread,
   onOpenInThread,
+  onDeleteTask,
   onCopy,
   openingThread,
   onError,
@@ -424,6 +426,9 @@ export function TaskDetail({
   const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Comment | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [pendingTaskDelete, setPendingTaskDelete] = useState(false);
+  const [taskDeleteConfirmation, setTaskDeleteConfirmation] = useState("");
+  const [deletingTask, setDeletingTask] = useState(false);
   const titleRef = useRef<HTMLTextAreaElement>(null);
   const descriptionComposerRef = useRef<InlineMediaComposerHandle>(null);
   const descriptionScrollPositionRef = useRef<{ element: HTMLElement; top: number } | null>(null);
@@ -1855,6 +1860,22 @@ export function TaskDetail({
                 () => onRemoveRelation(anchor, type, relatedTaskId),
               )}
             />
+            {currentTask.source !== "jira" && (
+              <div className="detail-danger-zone">
+                <button
+                  className="detail-delete-action"
+                  type="button"
+                  disabled={deletingTask}
+                  onClick={() => {
+                    setTaskDeleteConfirmation("");
+                    setPendingTaskDelete(true);
+                  }}
+                >
+                  <DeleteIcon color="currentColor" />
+                  <span>{text("删除议题", "Delete issue")}</span>
+                </button>
+              </div>
+            )}
             <div className="detail-timestamps">
               <span>{text(
                 `创建于 ${exactTime(currentTask.createdAt, locale)}`,
@@ -1884,6 +1905,77 @@ export function TaskDetail({
         </div>
       )}
 
+      {pendingTaskDelete && (
+        <div
+          className="delete-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deletingTask) setPendingTaskDelete(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && !deletingTask) setPendingTaskDelete(false);
+          }}
+        >
+          <div
+            className="delete-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="issue-delete-title"
+          >
+            <h2 id="issue-delete-title">{text(
+              `删除 ${displayIdentifier}？`,
+              `Delete ${displayIdentifier}?`,
+            )}</h2>
+            <p>{text(
+              `“${currentTask.title}”及其评论和附件将被永久删除，此操作无法撤销。请输入“立即删除”确认。`,
+              `“${currentTask.title}”, its comments, and attachments will be permanently deleted. This cannot be undone. Type 立即删除 to confirm.`,
+            )}</p>
+            <div className="issue-delete-confirmation">
+              <label htmlFor="issue-delete-confirmation-input">
+                {text("确认文字", "Confirmation text")}
+              </label>
+              <input
+                id="issue-delete-confirmation-input"
+                type="text"
+                autoFocus
+                value={taskDeleteConfirmation}
+                placeholder={text("立即删除", "立即删除")}
+                disabled={deletingTask}
+                onChange={(event) => setTaskDeleteConfirmation(event.target.value)}
+              />
+            </div>
+            <div>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={deletingTask}
+                onClick={() => setPendingTaskDelete(false)}
+              >
+                {text("取消", "Cancel")}
+              </button>
+              <button
+                className="button danger"
+                type="button"
+                disabled={deletingTask || taskDeleteConfirmation.trim() !== "立即删除"}
+                onClick={() => void confirmTaskDelete()}
+              >
+                {deletingTask ? text("删除中…", "Deleting…") : text("立即删除", "Delete now")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </section>
   );
+
+  async function confirmTaskDelete() {
+    if (taskDeleteConfirmation.trim() !== "立即删除" || deletingTask) return;
+    setDeletingTask(true);
+    try {
+      await onDeleteTask(currentTask);
+    } finally {
+      setDeletingTask(false);
+    }
+  }
 }
