@@ -2994,6 +2994,7 @@ kbd {
 
 .issue-sub-issue-list .issue-relation-remove {
   position: absolute;
+  top: 3px;
   right: 3px;
   margin-right: 0;
 }
@@ -3010,11 +3011,13 @@ kbd {
   background: transparent;
   color: var(--text-tertiary);
   opacity: 0;
+  pointer-events: none;
 }
 
 .issue-relation-row:hover .issue-relation-remove,
 .issue-relation-row:focus-within .issue-relation-remove {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .issue-relation-remove:hover {
