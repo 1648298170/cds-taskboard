@@ -343,7 +343,7 @@ kbd {
 }
 
 .project-sidebar-list button {
-  align-items: start;
+  align-items: center;
   line-height: 1.35;
 }
 
@@ -394,11 +394,19 @@ kbd {
   font-weight: 550;
 }
 
+.project-sidebar-item.is-archived:not(.is-selected) {
+  color: var(--text-tertiary);
+}
+
 .project-sidebar-folder {
   margin-top: 7px;
   color: var(--text-secondary);
   font-size: 10px;
   font-weight: 650;
+}
+
+.project-sidebar-archived {
+  color: var(--text-tertiary);
 }
 
 .project-sidebar-folder:first-child {
@@ -522,12 +530,6 @@ kbd {
   height: 16px;
 }
 
-.project-name {
-  max-width: min(28vw, 260px);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .header-project-switcher {
   position: relative;
   min-width: 0;
@@ -570,33 +572,6 @@ kbd {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.header-project-button {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  font: inherit;
-}
-
-.header-project-button:hover,
-.header-project-button[aria-expanded="true"] {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.project-switcher-chevron {
-  flex: 0 0 auto;
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: var(--text-tertiary);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.4;
 }
 
 .header-project-menu {
@@ -7570,22 +7545,6 @@ kbd {
 .workspace-kicker .detail-back-button:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
-}
-
-.header-project-button {
-  max-width: min(36vw, 340px);
-  height: 26px;
-  gap: 5px;
-  margin: 0;
-  padding: 0 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.header-project-button .project-name {
-  max-width: min(31vw, 300px);
-  color: var(--text-secondary);
-  font-weight: 600;
 }
 
 .header-actions {

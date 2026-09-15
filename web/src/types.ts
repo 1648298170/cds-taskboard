@@ -346,6 +346,7 @@ export interface Project {
   source: "local" | "jira";
   labels: string[];
   issueCount: number;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

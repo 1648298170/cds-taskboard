@@ -2354,6 +2354,28 @@ export function createTaskboardServer(options = {}) {
         return methodNotAllowed(response, ["DELETE"]);
       }
 
+      const projectLifecycleRoute = pathname.match(/^\/api\/projects\/([^/]+)\/(archive|restore)$/);
+      if (projectLifecycleRoute) {
+        if ([...url.searchParams.keys()].length > 0) {
+          throw new ApiError(400, "UNKNOWN_QUERY_PARAMETER", "Project lifecycle routes do not accept query parameters");
+        }
+        let projectId;
+        try {
+          projectId = decodeURIComponent(projectLifecycleRoute[1]);
+        } catch {
+          throw new ApiError(400, "INVALID_PATH", "Project id contains invalid encoding");
+        }
+        validateProjectId(projectId);
+        if (request.method !== "POST") {
+          return methodNotAllowed(response, ["POST"]);
+        }
+        const project = projectLifecycleRoute[2] === "archive"
+          ? database.archiveProject(projectId)
+          : database.restoreProject(projectId);
+        events.emit("project.updated", { project });
+        return sendJson(response, 200, { project });
+      }
+
       const projectLabelsRoute = pathname.match(/^\/api\/projects\/([^/]+)\/labels$/);
       if (projectLabelsRoute) {
         if ([...url.searchParams.keys()].length > 0) {

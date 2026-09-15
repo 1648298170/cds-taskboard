@@ -518,6 +518,22 @@ export async function deleteProjectLabel(projectId: string, label: string): Prom
   return data.project;
 }
 
+export async function archiveProject(projectId: string): Promise<Project> {
+  const data = await request<{ project: Project }>(
+    `/api/projects/${encodeURIComponent(projectId)}/archive`,
+    { method: "POST" },
+  );
+  return data.project;
+}
+
+export async function restoreProject(projectId: string): Promise<Project> {
+  const data = await request<{ project: Project }>(
+    `/api/projects/${encodeURIComponent(projectId)}/restore`,
+    { method: "POST" },
+  );
+  return data.project;
+}
+
 export async function deleteProject(projectId: string): Promise<void> {
   await request(`/api/projects/${encodeURIComponent(projectId)}`, {
     method: "DELETE",

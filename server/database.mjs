@@ -17,7 +17,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { DEFAULT_LABEL_NAMES, JIRA_PROJECT_ID } from "../shared/domain.mjs";
+import { DEFAULT_LABEL_NAMES, DEFAULT_PROJECT_ID, JIRA_PROJECT_ID } from "../shared/domain.mjs";
 
 const DEFAULT_PROJECT_LABELS_JSON = JSON.stringify(DEFAULT_LABEL_NAMES);
 const TASK_TREE_MAX_NODES = 1_000;
@@ -175,6 +175,7 @@ function projectFromRow(row) {
     source: row.id === JIRA_PROJECT_ID ? "jira" : "local",
     labels: JSON.parse(row.labels),
     issueCount: Number(row.issue_count ?? 0),
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -269,6 +270,7 @@ export class TaskboardDatabase {
         labels TEXT NOT NULL DEFAULT '${DEFAULT_PROJECT_LABELS_JSON}',
         next_task_number INTEGER NOT NULL DEFAULT 1 CHECK (next_task_number > 0),
         created_at TEXT NOT NULL,
+        archived_at TEXT,
         updated_at TEXT NOT NULL
       );
 
@@ -462,6 +464,9 @@ export class TaskboardDatabase {
     const projectColumns = this.database.prepare("PRAGMA table_info(projects)").all();
     if (!projectColumns.some((column) => column.name === "workspace_path")) {
       this.database.exec("ALTER TABLE projects ADD COLUMN workspace_path TEXT");
+    }
+    if (!projectColumns.some((column) => column.name === "archived_at")) {
+      this.database.exec("ALTER TABLE projects ADD COLUMN archived_at TEXT");
     }
 
     const aiChatThreadColumns = this.database.prepare("PRAGMA table_info(ai_chat_threads)").all();
@@ -899,6 +904,7 @@ export class TaskboardDatabase {
         projects.name,
         projects.workspace_path,
         projects.labels,
+        projects.archived_at,
         projects.created_at,
         projects.updated_at,
         COUNT(tasks.id) AS issue_count
@@ -911,6 +917,7 @@ export class TaskboardDatabase {
         projects.name,
         projects.workspace_path,
         projects.labels,
+        projects.archived_at,
         projects.created_at,
         projects.updated_at
       ORDER BY projects.created_at, projects.id
@@ -1149,12 +1156,40 @@ export class TaskboardDatabase {
     }
   }
 
+  archiveProject(id) {
+    return this.setProjectArchived(id, true);
+  }
+
+  restoreProject(id) {
+    return this.setProjectArchived(id, false);
+  }
+
+  setProjectArchived(id, archived) {
+    if (!this.canMutateProject(id)) {
+      throw new ApiError(403, "PROJECT_ARCHIVE_FORBIDDEN", "Only local projects can be archived");
+    }
+    const current = this.getProject(id);
+    if (!current) {
+      throw new ApiError(404, "PROJECT_NOT_FOUND", `Project '${id}' does not exist`);
+    }
+    if ((current.archivedAt !== null) === archived) {
+      return current;
+    }
+    const timestamp = now();
+    this.database.prepare(`
+      UPDATE projects
+      SET archived_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(archived ? timestamp : null, timestamp, id);
+    return this.getProject(id);
+  }
+
   deleteProject(id) {
     const project = this.getProject(id);
     if (!project) {
       throw new ApiError(404, "PROJECT_NOT_FOUND", `Project '${id}' does not exist`);
     }
-    if (!id.startsWith("temp-")) {
+    if (!this.canMutateProject(id)) {
       throw new ApiError(403, "PROJECT_DELETE_FORBIDDEN", "Only manually created projects can be deleted");
     }
     const result = this.database.prepare(`
@@ -1171,6 +1206,10 @@ export class TaskboardDatabase {
     return project;
   }
 
+  canMutateProject(id) {
+    return id !== DEFAULT_PROJECT_ID && id !== JIRA_PROJECT_ID;
+  }
+
   getProject(id) {
     const row = this.database.prepare(`
       SELECT
@@ -1178,6 +1217,7 @@ export class TaskboardDatabase {
         projects.name,
         projects.workspace_path,
         projects.labels,
+        projects.archived_at,
         projects.created_at,
         projects.updated_at,
         COUNT(tasks.id) AS issue_count
@@ -1191,6 +1231,7 @@ export class TaskboardDatabase {
         projects.name,
         projects.workspace_path,
         projects.labels,
+        projects.archived_at,
         projects.created_at,
         projects.updated_at
     `).get(id);

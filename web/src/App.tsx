@@ -17,6 +17,7 @@ import {
   ApiError,
   addTaskRelation,
   archiveTask as archiveTaskRequest,
+  archiveProject as archiveProjectRequest,
   createProjectLabel as createProjectLabelRequest,
   createProject as createProjectRequest,
   createTask as createTaskRequest,
@@ -40,6 +41,7 @@ import {
   resolveTaskboardUrl,
   resolveTaskboardWebSocketUrl,
   restoreTask as restoreTaskRequest,
+  restoreProject as restoreProjectRequest,
   setApiText,
   setCurrentUserActor,
   syncJiraConnection,
@@ -101,7 +103,7 @@ import {
   taskStatusLabel,
   TaskboardLanguageProvider,
 } from "./i18n";
-import { groupProjectsByFolder } from "./projectFolders";
+import { groupProjectsByFolder, type ProjectFolderGroup } from "./projectFolders";
 import {
   MAIN_STATUSES,
   type OtherTaskTab,
@@ -180,6 +182,8 @@ interface ProjectChoice {
   id: string;
   name: string;
   workspacePath: string | null;
+  source: "local" | "jira";
+  archivedAt: string | null;
   issueCount: number;
   inCodex: boolean;
   persisted: boolean;
@@ -364,6 +368,7 @@ const EVENT_NAMES = [
   "attachment.created",
   "attachment.deleted",
   "project.created",
+  "project.updated",
   "project.labels.updated",
   "project.readme.updated",
   "client-storage.updated",
@@ -376,15 +381,16 @@ function isTheme(value: unknown): value is Theme {
 function getInitialTheme(): Theme {
   const query = new URL(document.baseURI).searchParams;
   const host = query.get("host");
+  const stored = taskboardStorage.getItem("taskboard.theme");
   if (
     window.parent !== window
     && (host === "codex" || host === "deepseek-harness")
   ) {
     const fromQuery = query.get("theme");
     if (isTheme(fromQuery)) return fromQuery;
-    const stored = taskboardStorage.getItem("taskboard.theme");
     if (isTheme(stored)) return stored;
   }
+  if (isTheme(stored)) return stored;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
@@ -655,6 +661,10 @@ function LocalRealtimeSync({
         scheduleRefresh({ projects: true });
         return;
       }
+      if (event.type === "project.updated") {
+        scheduleRefresh({ projects: true, tasks: affectsSelectedProject, projectId: eventProjectId });
+        return;
+      }
       if (event.type === "project.labels.updated") {
         scheduleRefresh({ projects: true, tasks: affectsSelectedProject, projectId: eventProjectId });
         return;
@@ -822,6 +832,7 @@ export function App() {
   const [projectMenuSearch, setProjectMenuSearch] = useState("");
   const [collapsedProjectFolderKeys, setCollapsedProjectFolderKeys] = useState<Record<string, boolean>>({});
   const [projectContextMenu, setProjectContextMenu] = useState<ProjectContextMenuState | null>(null);
+  const [archivedProjectListOpen, setArchivedProjectListOpen] = useState(true);
   const [projectCreateOpen, setProjectCreateOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [jiraDialogOpen, setJiraDialogOpen] = useState(false);
@@ -832,6 +843,7 @@ export function App() {
   const [pendingProjectDelete, setPendingProjectDelete] = useState<ProjectChoice | null>(null);
   const [projectDeleteIssueCount, setProjectDeleteIssueCount] = useState<number | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [projectLifecyclePendingId, setProjectLifecyclePendingId] = useState<string | null>(null);
   const [deviceWorkspacePaths, setDeviceWorkspacePaths] = useState(readDeviceWorkspacePaths);
   const [projectCodexIdentities, setProjectCodexIdentities] = useState(readProjectCodexIdentities);
   const [projectAutomations, setProjectAutomations] = useState(readProjectAutomations);
@@ -1174,6 +1186,8 @@ export function App() {
           ? text("临时任务", "Temporary tasks")
           : persistedById.get(project.id)?.name ?? project.name,
         workspacePath: deviceWorkspacePaths[project.id] ?? project.workspacePath ?? null,
+        source: persistedById.get(project.id)?.source ?? "local",
+        archivedAt: persistedById.get(project.id)?.archivedAt ?? null,
         issueCount: persistedById.get(project.id)?.issueCount ?? 0,
         inCodex: true,
         persisted: persistedById.has(project.id),
@@ -1198,6 +1212,8 @@ export function App() {
           ?? project.workspacePath
           ?? projectCodexIdentities[project.id]?.workspacePath
           ?? null,
+        source: project.source,
+        archivedAt: project.archivedAt,
         issueCount: project.issueCount,
         inCodex: false,
         persisted: true,
@@ -1224,14 +1240,20 @@ export function App() {
   const projectMenuCandidates = projectChoices.filter(
     (project) => project.id !== GLOBAL_PROJECT_ID || project.issueCount > 0,
   );
+  const activeProjectMenuCandidates = projectMenuCandidates.filter((project) => project.archivedAt === null);
+  const archivedProjectMenuCandidates = projectMenuCandidates.filter((project) => project.archivedAt !== null);
   const projectMenuNeedle = projectMenuSearch.trim().toLocaleLowerCase();
-  const projectMenuChoices = projectMenuNeedle
-    ? projectMenuCandidates.filter((project) => (
+  const filterProjectMenuCandidates = (candidates: ProjectChoice[]) => (projectMenuNeedle
+    ? candidates.filter((project) => (
       project.name.toLocaleLowerCase().includes(projectMenuNeedle)
       || project.workspacePath?.toLocaleLowerCase().includes(projectMenuNeedle)
     ))
-    : projectMenuCandidates;
-  const projectMenuGroups = groupProjectsByFolder(projectMenuChoices);
+    : candidates);
+  const projectMenuChoices = filterProjectMenuCandidates(projectMenuCandidates);
+  const activeProjectMenuChoices = filterProjectMenuCandidates(activeProjectMenuCandidates);
+  const archivedProjectMenuChoices = filterProjectMenuCandidates(archivedProjectMenuCandidates);
+  const projectMenuGroups = groupProjectsByFolder(activeProjectMenuChoices);
+  const archivedProjectMenuGroups = groupProjectsByFolder(archivedProjectMenuChoices);
   const firstEmptyProjectId = projectMenuChoices.find((project) => project.issueCount === 0)?.id ?? null;
   const hasProjectsWithIssues = projectMenuChoices.some((project) => project.issueCount > 0);
   const editorProjectId = editor?.projectId
@@ -1666,7 +1688,11 @@ export function App() {
   useEffect(() => {
     if (embedded && window.parent !== window) return;
     const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
-    const syncTheme = () => setTheme(systemTheme.matches ? "dark" : "light");
+    const syncTheme = () => {
+      const stored = taskboardStorage.getItem("taskboard.theme");
+      if (isTheme(stored)) return;
+      setTheme(systemTheme.matches ? "dark" : "light");
+    };
     syncTheme();
     systemTheme.addEventListener("change", syncTheme);
     return () => systemTheme.removeEventListener("change", syncTheme);
@@ -3212,6 +3238,90 @@ export function App() {
     setPendingProjectDelete(project);
   }
 
+  function requestProjectLifecycle(project: ProjectChoice, action: "archive" | "restore") {
+    setProjectContextMenu(null);
+    setProjectLifecyclePendingId(project.id);
+    setActionError(null);
+    void (async () => {
+      try {
+        const nextProject = action === "archive"
+          ? await archiveProjectRequest(project.id)
+          : await restoreProjectRequest(project.id);
+        setProjects((current) => current.map((candidate) => (
+          candidate.id === nextProject.id ? nextProject : candidate
+        )));
+        if (action === "archive" && selectedProjectId === project.id) {
+          changeProject(ALL_PROJECTS_ID);
+        }
+        setAnnouncement(text(
+          action === "archive"
+            ? `已归档项目“${project.name}”`
+            : `已恢复项目“${project.name}”`,
+          action === "archive"
+            ? `Archived project “${project.name}”`
+            : `Restored project “${project.name}”`,
+        ));
+      } catch (error) {
+        setActionError(errorMessage(error));
+      } finally {
+        setProjectLifecyclePendingId(null);
+      }
+    })();
+  }
+
+  function canManageProject(project: ProjectChoice) {
+    return project.persisted
+      && project.source === "local"
+      && project.id !== GLOBAL_PROJECT_ID;
+  }
+
+  function renderProjectSidebarGroup(
+    group: ProjectFolderGroup<ProjectChoice>,
+    archived: boolean,
+  ) {
+    const folderSegments = group.label?.split("/").filter(Boolean) ?? [];
+    const folderLabel = group.label === null
+      ? text("全局 / 未映射", "Global / unmapped")
+      : folderSegments.at(-1) ?? "/";
+    const collapsed = !projectMenuNeedle && collapsedProjectFolderKeys[group.key] === true;
+    return (
+      <Fragment key={group.key}>
+        <button
+          type="button"
+          className="project-sidebar-folder"
+          aria-expanded={!collapsed}
+          title={group.label ?? undefined}
+          onClick={() => setCollapsedProjectFolderKeys((current) => ({ ...current, [group.key]: !collapsed }))}
+        >
+          <LinearIcon className="project-folder-state-icon" name={collapsed ? "folder" : "folderOpen"} />
+          <span>{folderLabel}</span>
+        </button>
+        {!collapsed && group.projects.map((project) => (
+          <button
+            key={project.id}
+            type="button"
+            className={"project-sidebar-item project-sidebar-leaf" + (project.id === selectedProjectId ? " is-selected" : "") + (archived ? " is-archived" : "")}
+            aria-current={project.id === selectedProjectId ? "true" : undefined}
+            disabled={openingProjectId !== null}
+            onContextMenu={canManageProject(project)
+              ? (event) => {
+                  event.preventDefault();
+                  setProjectContextMenu({ project, x: event.clientX, y: event.clientY });
+                }
+              : undefined}
+            onClick={() => {
+              if (project.id !== selectedProjectId) void selectProject(project);
+            }}
+          >
+            <span className="project-sidebar-icon-placeholder" aria-hidden="true" />
+            <span>{project.name}</span>
+            {project.id === selectedProjectId && <span className="project-menu-check" aria-hidden="true"><LinearIcon name="check" /></span>}
+          </button>
+        ))}
+      </Fragment>
+    );
+  }
+
   function closeProjectDeleteDialog() {
     if (deletingProjectId) return;
     setPendingProjectDelete(null);
@@ -3326,28 +3436,22 @@ export function App() {
                 <div className="project-menu-divider" role="separator" />
               </>
             )}
-            {projectMenuGroups.map((group) => {
-              const folderSegments = group.label?.split("/").filter(Boolean) ?? [];
-              const folderLabel = group.label === null
-                ? text("全局 / 未映射", "Global / unmapped")
-                : folderSegments.at(-1) ?? "/";
-              const collapsed = !projectMenuNeedle && collapsedProjectFolderKeys[group.key] === true;
-              return (
-                <Fragment key={group.key}>
-                  <button type="button" className="project-sidebar-folder" aria-expanded={!collapsed} title={group.label ?? undefined} onClick={() => setCollapsedProjectFolderKeys((current) => ({ ...current, [group.key]: !collapsed }))}>
-                    <LinearIcon className="project-folder-state-icon" name={collapsed ? "folder" : "folderOpen"} />
-                    <span>{folderLabel}</span>
-                  </button>
-                  {!collapsed && group.projects.map((project) => (
-                    <button key={project.id} type="button" className={"project-sidebar-item project-sidebar-leaf" + (project.id === selectedProjectId ? " is-selected" : "")} aria-current={project.id === selectedProjectId ? "true" : undefined} disabled={openingProjectId !== null} onContextMenu={project.id.startsWith("temp-") ? (event) => { event.preventDefault(); setProjectContextMenu({ project, x: event.clientX, y: event.clientY }); } : undefined} onClick={() => { if (project.id !== selectedProjectId) void selectProject(project); }}>
-                      <span className="project-sidebar-icon-placeholder" aria-hidden="true" />
-                      <span>{project.name}</span>
-                      {project.id === selectedProjectId && <span className="project-menu-check" aria-hidden="true"><LinearIcon name="check" /></span>}
-                    </button>
-                  ))}
-                </Fragment>
-              );
-            })}
+            {projectMenuGroups.map((group) => renderProjectSidebarGroup(group, false))}
+            {archivedProjectMenuGroups.length > 0 && (
+              <>
+                <div className="project-menu-divider" role="separator" />
+                <button
+                  type="button"
+                  className="project-sidebar-folder project-sidebar-archived"
+                  aria-expanded={archivedProjectListOpen}
+                  onClick={() => setArchivedProjectListOpen((current) => !current)}
+                >
+                  <LinearIcon className="project-folder-state-icon" name={archivedProjectListOpen ? "folderOpen" : "folder"} />
+                  <span>{text("归档项目", "Archived projects")}</span>
+                </button>
+                {archivedProjectListOpen && archivedProjectMenuGroups.map((group) => renderProjectSidebarGroup(group, true))}
+              </>
+            )}
             {projectMenuNeedle && projectMenuChoices.length === 0 && <div className="project-menu-empty">{text("没有匹配项目", "No matching projects")}</div>}
           </nav>
           <div className="project-sidebar-actions">
@@ -3390,7 +3494,7 @@ export function App() {
               )}
               <div className="header-project-switcher" data-project-switcher>
                 <button
-                  className="header-project-button"
+                  className="project-sidebar-toggle"
                   type="button"
                   aria-label={text(projectMenuOpen ? "收起项目面板" : "展开项目面板", projectMenuOpen ? "Collapse projects panel" : "Expand projects panel")}
                   aria-controls="project-sidebar"
@@ -3404,10 +3508,9 @@ export function App() {
                     });
                   }}
                 >
-                  <LinearIcon className="project-avatar" name={projectMenuOpen ? "sidebarCollapse" : "sidebarExpand"} />
-                  <span className="project-name">{headerProjectName}</span>
-                  <TaskboardIcon className="project-switcher-chevron" name="dropdown" />
+                  <LinearIcon name={projectMenuOpen ? "sidebarCollapse" : "sidebarExpand"} />
                 </button>
+                <span className="header-project-name" title={headerProjectName}>{headerProjectName}</span>
                 {false && (
                   <div className="header-project-menu" role="menu" aria-label={text("项目", "Projects")}>
                     <span>{text("切换项目", "Switch project")}</span>
@@ -3522,6 +3625,25 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
+            <button
+              className="icon-button theme-toggle-button"
+              type="button"
+              aria-label={text(
+                theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+                theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+              )}
+              title={text(
+                theme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+                theme === "dark" ? "Switch to light theme" : "Switch to dark theme",
+              )}
+              onClick={() => {
+                const nextTheme = theme === "dark" ? "light" : "dark";
+                taskboardStorage.setItem("taskboard.theme", nextTheme);
+                setTheme(nextTheme);
+              }}
+            >
+              <LinearIcon name={theme === "dark" ? "sun" : "moon"} />
+            </button>
             {selectedProject && (
               <ProjectAutomationMenu
                 automation={selectedProjectAutomation}
@@ -3867,10 +3989,32 @@ export function App() {
           )}
           style={{ left: projectContextMenu.x, top: projectContextMenu.y }}
         >
+          {canManageProject(projectContextMenu.project) && (
+            <button
+              className="context-menu-item"
+              type="button"
+              role="menuitem"
+              disabled={projectLifecyclePendingId !== null}
+              onClick={() => requestProjectLifecycle(
+                projectContextMenu.project,
+                projectContextMenu.project.archivedAt === null ? "archive" : "restore",
+              )}
+            >
+              <span className="context-menu-icon" aria-hidden="true">
+                <LinearIcon name={projectContextMenu.project.archivedAt === null ? "folder" : "expand"} />
+              </span>
+              <span className="context-menu-label">
+                {projectContextMenu.project.archivedAt === null
+                  ? text("归档项目", "Archive project")
+                  : text("恢复项目", "Restore project")}
+              </span>
+            </button>
+          )}
           <button
             className="context-menu-item is-danger"
             type="button"
             role="menuitem"
+            disabled={projectLifecyclePendingId !== null}
             onClick={() => requestProjectDelete(projectContextMenu.project)}
           >
             <span className="context-menu-icon" aria-hidden="true"><DeleteIcon color="currentColor" /></span>
