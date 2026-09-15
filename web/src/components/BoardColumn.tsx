@@ -22,12 +22,10 @@ export const STATUS_DETAILS: Record<
 
 function BoardIssueRow({
   task,
-  isChild = false,
   onEdit,
   onContextMenu,
 }: {
   task: Task;
-  isChild?: boolean;
   onEdit: (task: Task) => void;
   onContextMenu: (task: Task, position: { x: number; y: number }) => void;
 }) {
@@ -36,7 +34,7 @@ function BoardIssueRow({
 
   return (
     <button
-      className={`board-issue-row${isChild ? " is-child" : ""}`}
+      className="board-issue-row"
       type="button"
       data-task-id={task.id}
       aria-label={text(`打开 ${identifier}: ${task.title}`, `Open ${identifier}: ${task.title}`)}
@@ -173,98 +171,85 @@ export function BoardColumn({
       </header>
 
       <div className={`column-list${status === "backlog" ? " is-tree" : ""}`} ref={scrollRef}>
-        {visibleTasks.map((task) => {
-          const dragShift = getTaskDragShift(task.id);
-          const childTasks = status === "backlog"
-            ? tasks.filter((candidate) => candidate.relations.parent?.id === task.id)
-            : [];
-          const isGroup = childTasks.length > 0;
-          const isCollapsed = !expandedGroups.has(task.id);
+        {status === "backlog" && (
+          <ul className="board-issue-tree">
+            {visibleTasks.map((task) => {
+              const childTasks = tasks.filter((candidate) => candidate.relations.parent?.id === task.id);
+              const hasChildren = childTasks.length > 0;
+              const isCollapsed = !expandedGroups.has(task.id);
 
-          if (!isGroup) {
-            if (status === "backlog") {
               return (
-                <BoardIssueRow
-                  key={task.id}
-                  task={task}
-                  onEdit={onEdit}
-                  onContextMenu={onContextMenu}
-                />
+                <li key={task.id} className="board-issue-tree-item">
+                  <div className="board-issue-item">
+                    <BoardIssueRow task={task} onEdit={onEdit} onContextMenu={onContextMenu} />
+                    {hasChildren && (
+                      <button
+                        className="board-issue-toggle"
+                        type="button"
+                        aria-expanded={!isCollapsed}
+                        aria-label={text(
+                          `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
+                          `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
+                        )}
+                        title={text(
+                          `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
+                          `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
+                        )}
+                        onClick={() => setExpandedGroups((current) => {
+                          const next = new Set(current);
+                          if (next.has(task.id)) next.delete(task.id);
+                          else next.add(task.id);
+                          return next;
+                        })}
+                      >
+                        <LinearIcon name={isCollapsed ? "chevronRight" : "chevronDown"} />
+                        <span>{childTasks.length}</span>
+                      </button>
+                    )}
+                  </div>
+                  {hasChildren && !isCollapsed && (
+                    <ul className="board-issue-tree is-nested">
+                      {childTasks.map((childTask) => (
+                        <li key={childTask.id} className="board-issue-tree-item">
+                          <div className="board-issue-item">
+                            <BoardIssueRow task={childTask} onEdit={onEdit} onContextMenu={onContextMenu} />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
               );
-            }
-            return (
-              <TaskCard
-                key={task.id}
-                task={task}
-                presentation={presentations[task.id]}
-                isDragging={draggedTaskId === task.id}
-                dragShift={dragShift}
-                isMoving={movingTaskId === task.id}
-                isSettling={settlingTaskId === task.id}
-                isContextMenuOpen={contextMenuTaskId === task.id}
-                availableLabels={availableLabels}
-                projectName={projectNames?.[task.projectId]}
-                currentUser={currentUser}
-                showCover={showCover}
-                showBody={showBody}
-                onCreateLabel={(label) => onCreateLabel(label, task.projectId)}
-                onEdit={onEdit}
-                onUpdate={onUpdate}
-                onComplete={onComplete}
-                onContextMenu={onContextMenu}
-                onDragStart={onDragStart}
-                onDragEnd={onDragEnd}
-                onOpenConversation={onOpenConversation}
-              />
-            );
-          }
+            })}
+          </ul>
+        )}
+        {status !== "backlog" && visibleTasks.map((task) => {
+          const dragShift = getTaskDragShift(task.id);
 
           return (
-            <div
+            <TaskCard
               key={task.id}
-              className={`board-issue-group${isCollapsed ? " is-collapsed" : ""}`}
-            >
-              <div className="board-issue-group-parent">
-                <BoardIssueRow task={task} onEdit={onEdit} onContextMenu={onContextMenu} />
-                <button
-                  className="board-issue-group-toggle"
-                  type="button"
-                  aria-expanded={!isCollapsed}
-                  aria-label={text(
-                    `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
-                    `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
-                  )}
-                  title={text(
-                    `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
-                    `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
-                  )}
-                  onClick={() => setExpandedGroups((current) => {
-                    const next = new Set(current);
-                    if (next.has(task.id)) next.delete(task.id);
-                    else next.add(task.id);
-                    return next;
-                  })}
-                >
-                  <LinearIcon name={isCollapsed ? "chevronRight" : "chevronDown"} />
-                  <span>{childTasks.length}</span>
-                </button>
-              </div>
-              {!isCollapsed && (
-                <div className="board-issue-group-children">
-                  {childTasks.map((childTask) => {
-                    return (
-                      <BoardIssueRow
-                        key={childTask.id}
-                        task={childTask}
-                        isChild
-                        onEdit={onEdit}
-                        onContextMenu={onContextMenu}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              task={task}
+              presentation={presentations[task.id]}
+              isDragging={draggedTaskId === task.id}
+              dragShift={dragShift}
+              isMoving={movingTaskId === task.id}
+              isSettling={settlingTaskId === task.id}
+              isContextMenuOpen={contextMenuTaskId === task.id}
+              availableLabels={availableLabels}
+              projectName={projectNames?.[task.projectId]}
+              currentUser={currentUser}
+              showCover={showCover}
+              showBody={showBody}
+              onCreateLabel={(label) => onCreateLabel(label, task.projectId)}
+              onEdit={onEdit}
+              onUpdate={onUpdate}
+              onComplete={onComplete}
+              onContextMenu={onContextMenu}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onOpenConversation={onOpenConversation}
+            />
           );
         })}
         {tasks.length === 0 && <div className="column-empty">{emptyMessage}</div>}

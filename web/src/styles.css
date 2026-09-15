@@ -7930,19 +7930,28 @@ kbd {
   box-shadow: var(--card-shadow);
 }
 
-.board-issue-group {
-  overflow: hidden;
-  flex: 0 0 auto;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
+.board-issue-tree {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.board-issue-group-parent {
-  display: inline-flex;
+.board-issue-tree-item {
+  min-width: 0;
+}
+
+.board-issue-tree-item + .board-issue-tree-item {
+  border-top: 1px solid color-mix(in srgb, var(--border) 32%, transparent);
+}
+
+.board-issue-item {
+  display: flex;
   align-items: center;
   width: 100%;
+  min-width: 0;
 }
 
 .board-issue-row {
@@ -7966,13 +7975,6 @@ kbd {
   color: var(--text-primary);
 }
 
-.board-issue-row + .board-issue-row,
-.board-issue-row + .board-issue-group,
-.board-issue-group + .board-issue-row,
-.board-issue-group + .board-issue-group {
-  border-top: 1px solid color-mix(in srgb, var(--border) 42%, transparent);
-}
-
 .board-issue-row-id {
   flex: 0 0 auto;
   color: var(--text-tertiary);
@@ -7990,24 +7992,15 @@ kbd {
   white-space: nowrap;
 }
 
-.board-issue-row.is-child {
-  height: 30px;
-  padding-left: 30px;
-  background: color-mix(in srgb, var(--surface-muted) 36%, transparent);
-}
-
-.board-issue-row.is-child .board-issue-row-title {
-  color: var(--text-tertiary);
-}
-
-.board-issue-group-toggle {
+.board-issue-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
   gap: 3px;
   width: 38px;
   height: 28px;
-  margin-right: 3px;
+  margin-right: 4px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -8016,25 +8009,20 @@ kbd {
   line-height: 1;
 }
 
-.board-issue-group-toggle:hover {
+.board-issue-toggle:hover {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
 
-.board-issue-group-toggle svg {
+.board-issue-toggle svg {
   width: 10px;
   height: 10px;
 }
 
-.board-issue-group-children {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-}
-
-.board-issue-group-children .board-issue-row {
-  border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+.board-issue-tree.is-nested {
+  margin: 0 0 2px 22px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--border) 58%, transparent);
 }
 
 .task-card:hover,
