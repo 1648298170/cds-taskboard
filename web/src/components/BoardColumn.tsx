@@ -1,9 +1,10 @@
-import type { DragEvent } from "react";
+import { useState, type DragEvent } from "react";
 import { useTaskCardDragPreview } from "../useTaskCardDragPreview";
 import type { ActorIdentity, Task, TaskDraft, TaskStatus } from "../types";
 import { taskStatusLabel, useTaskboardI18n } from "../i18n";
 import type { TaskCardPresentation, TaskConversationItem } from "../taskConversations";
 import { TaskCard } from "./TaskCard";
+import { LinearIcon } from "./LinearIcon";
 import { PlusIcon, StatusIcon } from "./SemanticIcons";
 
 export const STATUS_DETAILS: Record<
@@ -81,6 +82,7 @@ export function BoardColumn({
   onOpenConversation,
 }: BoardColumnProps) {
   const { language, text } = useTaskboardI18n();
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const details = STATUS_DETAILS[status];
   const label = taskStatusLabel(language, status);
   const { findDropBefore, clearDropPreview, updateDropPreview, leaveDropPreview, getTaskDragShift } =
@@ -94,6 +96,11 @@ export function BoardColumn({
     if (taskId) onDrop(status, taskId, findDropBefore(event.currentTarget, event.clientY));
     clearDropPreview();
   }
+
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const visibleTasks = status === "backlog"
+    ? tasks.filter((task) => !task.relations.parent || !taskIds.has(task.relations.parent.id))
+    : tasks;
 
   return (
     <section
@@ -132,9 +139,14 @@ export function BoardColumn({
       </header>
 
       <div className="column-list" ref={scrollRef}>
-        {tasks.map((task) => {
+        {visibleTasks.map((task) => {
           const dragShift = getTaskDragShift(task.id);
-          return (
+          const childTasks = status === "backlog"
+            ? tasks.filter((candidate) => candidate.relations.parent?.id === task.id)
+            : [];
+          const isGroup = childTasks.length > 0;
+          const isCollapsed = !expandedGroups.has(task.id);
+          const card = (
             <TaskCard
               key={task.id}
               task={task}
@@ -158,6 +170,71 @@ export function BoardColumn({
               onDragEnd={onDragEnd}
               onOpenConversation={onOpenConversation}
             />
+          );
+
+          if (!isGroup) return card;
+
+          return (
+            <div
+              key={task.id}
+              className={`board-issue-group${isCollapsed ? " is-collapsed" : ""}`}
+            >
+              {card}
+              <button
+                className="board-issue-group-toggle"
+                type="button"
+                aria-expanded={!isCollapsed}
+                aria-label={text(
+                  `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
+                  `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
+                )}
+                title={text(
+                  `${isCollapsed ? "展开" : "收起"} ${childTasks.length} 个子议题`,
+                  `${isCollapsed ? "Expand" : "Collapse"} ${childTasks.length} sub-issues`,
+                )}
+                onClick={() => setExpandedGroups((current) => {
+                  const next = new Set(current);
+                  if (next.has(task.id)) next.delete(task.id);
+                  else next.add(task.id);
+                  return next;
+                })}
+              >
+                <LinearIcon name={isCollapsed ? "chevronRight" : "chevronDown"} />
+                <span>{childTasks.length}</span>
+              </button>
+              {!isCollapsed && (
+                <div className="board-issue-group-children">
+                  {childTasks.map((childTask) => {
+                    const childDragShift = getTaskDragShift(childTask.id);
+                    return (
+                      <TaskCard
+                        key={childTask.id}
+                        task={childTask}
+                        presentation={presentations[childTask.id]}
+                        isDragging={draggedTaskId === childTask.id}
+                        dragShift={childDragShift}
+                        isMoving={movingTaskId === childTask.id}
+                        isSettling={settlingTaskId === childTask.id}
+                        isContextMenuOpen={contextMenuTaskId === childTask.id}
+                        availableLabels={availableLabels}
+                        projectName={projectNames?.[childTask.projectId]}
+                        currentUser={currentUser}
+                        showCover={showCover}
+                        showBody={showBody}
+                        onCreateLabel={(label) => onCreateLabel(label, childTask.projectId)}
+                        onEdit={onEdit}
+                        onUpdate={onUpdate}
+                        onComplete={onComplete}
+                        onContextMenu={onContextMenu}
+                        onDragStart={onDragStart}
+                        onDragEnd={onDragEnd}
+                        onOpenConversation={onOpenConversation}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
         {tasks.length === 0 && <div className="column-empty">{emptyMessage}</div>}

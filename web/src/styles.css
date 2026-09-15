@@ -7925,6 +7925,56 @@ kbd {
   box-shadow: var(--card-shadow);
 }
 
+.board-issue-group {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.board-issue-group > .task-card {
+  width: 100%;
+}
+
+.board-issue-group-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 14px;
+}
+
+.board-issue-group-toggle:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.board-issue-group-toggle svg {
+  width: 10px;
+  height: 10px;
+}
+
+.board-issue-group-children {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-left: 14px;
+}
+
+.board-issue-group-children .task-card {
+  min-height: 68px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
 .task-card:hover,
 .task-card.is-context-open {
   border-color: var(--border-strong);
