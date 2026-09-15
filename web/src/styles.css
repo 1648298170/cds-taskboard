@@ -4342,11 +4342,6 @@ kbd {
   margin-top: 14px;
 }
 
-.issue-delete-confirmation label {
-  color: var(--text-secondary);
-  font-size: 11px;
-}
-
 .issue-delete-confirmation input {
   width: 100%;
   height: 32px;

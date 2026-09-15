@@ -1931,13 +1931,11 @@ export function TaskDetail({
               `“${currentTask.title}”, its comments, and attachments will be permanently deleted. This cannot be undone. Type 立即删除 to confirm.`,
             )}</p>
             <div className="issue-delete-confirmation">
-              <label htmlFor="issue-delete-confirmation-input">
-                {text("确认文字", "Confirmation text")}
-              </label>
               <input
                 id="issue-delete-confirmation-input"
                 type="text"
                 autoFocus
+                aria-label={text("确认文字", "Confirmation text")}
                 value={taskDeleteConfirmation}
                 placeholder={text("立即删除", "立即删除")}
                 disabled={deletingTask}
