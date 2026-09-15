@@ -172,7 +172,7 @@ export function BoardColumn({
         )}
       </header>
 
-      <div className="column-list" ref={scrollRef}>
+      <div className={`column-list${status === "backlog" ? " is-tree" : ""}`} ref={scrollRef}>
         {visibleTasks.map((task) => {
           const dragShift = getTaskDragShift(task.id);
           const childTasks = status === "backlog"
@@ -182,6 +182,16 @@ export function BoardColumn({
           const isCollapsed = !expandedGroups.has(task.id);
 
           if (!isGroup) {
+            if (status === "backlog") {
+              return (
+                <BoardIssueRow
+                  key={task.id}
+                  task={task}
+                  onEdit={onEdit}
+                  onContextMenu={onContextMenu}
+                />
+              );
+            }
             return (
               <TaskCard
                 key={task.id}
