@@ -1,0 +1,4 @@
+interface:
+  display_name: "Taskboard Issue Split"
+  short_description: "Split a Taskboard issue into batched parent + child issues"
+  default_prompt: "Split the referenced Taskboard issue into independently trackable child issues."
