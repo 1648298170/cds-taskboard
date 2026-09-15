@@ -59,7 +59,6 @@ import {
   type BoardDisplaySettings,
 } from "./components/BoardCardDisplayMenu";
 import { DashboardView } from "./components/DashboardView";
-import { ProjectReadmeView } from "./components/ProjectReadmeView";
 import { JiraConnectionDialog } from "./components/JiraConnectionDialog";
 import { ArchivedTasksColumn, OtherTasksPanel } from "./components/OtherTasksPanel";
 import {
@@ -146,7 +145,7 @@ import { createRevisionPoller, createRevisionWebSocketClient, getRevisionPolling
 
 type ConnectionState = "connecting" | "live" | "reconnecting";
 type Theme = "light" | "dark";
-type BoardView = "readme" | "dashboard" | "issues";
+type BoardView = "dashboard" | "issues";
 type DetailSourceScroll =
   { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number };
 type ActionError = string | readonly [string, string];
@@ -318,7 +317,7 @@ function issueReadStorageKey(mode: string, task: Pick<Task, "id" | "projectId">)
 
 function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  return view === "readme" || view === "dashboard" || view === "issues"
+  return view === "dashboard" || view === "issues"
     ? view
     : "issues";
 }
@@ -3572,16 +3571,6 @@ export function App() {
             >
               {text("议题看板", "Issue board")}
             </button>
-            {!isAllProjects && (
-              <button
-                className={`view-tab${boardView === "readme" ? " active" : ""}`}
-                type="button"
-                aria-pressed={boardView === "readme"}
-                onClick={() => selectBoardView("readme")}
-              >
-                {text("项目文档", "Project Docs")}
-              </button>
-            )}
           </div>
           {boardView === "issues" && <div className="toolbar-tools">
             <div className={`search-field${search ? " has-value" : ""}`} title={text("搜索议题 (/)", "Search issues (/)")}>
@@ -3690,7 +3679,7 @@ export function App() {
             openingThread={openingThreadTaskId === detailTask.id}
             onError={setActionError}
           />
-        ) : boardView !== "readme"
+        ) : boardView === "issues"
           && hasLoadedTasks
           && tasks.length === 0
           && selectedProject
@@ -3729,16 +3718,6 @@ export function App() {
               </button>
             </div>
           </div>
-        ) : boardView === "readme" && selectedProject ? (
-          <ProjectReadmeView
-            key={selectedProjectId}
-            project={selectedProject}
-            tasks={tasks.filter((task) => task.projectId === selectedProject.id)}
-            referenceTasks={referenceTasks.filter((task) => task.projectId === selectedProject.id)}
-            revision={readmeRevision}
-            onOpenTask={openTaskDetail}
-            onError={setActionError}
-          />
         ) : boardView === "dashboard" && (selectedProject || isAllProjects) ? (
           <DashboardView
             key={selectedProjectId}
